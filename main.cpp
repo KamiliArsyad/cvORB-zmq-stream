@@ -1,4 +1,4 @@
-#include "./VPINetStream.h"
+#include "./cvORBNetStream.h"
 
 #include <opencv2/core/version.hpp>
 #include <opencv2/features2d.hpp>
@@ -7,18 +7,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/opencv.hpp>
-#include <vpi/OpenCVInterop.hpp>
-
-#include <vpi/Array.h>
-#include <vpi/Image.h>
-#include <vpi/ImageFormat.h>
-#include <vpi/Pyramid.h>
-#include <vpi/Status.h>
-#include <vpi/Stream.h>
-#include <vpi/algo/ConvertImageFormat.h>
-#include <vpi/algo/GaussianPyramid.h>
-#include <vpi/algo/ImageFlip.h>
-#include <vpi/algo/ORB.h>
+#include <opencv2/core/cuda.hpp>
 
 #include <bitset>
 #include <cstdio>
@@ -29,31 +18,37 @@
 #include <exception>
 #define DEBUG 1
 
-// Custom exception class for VPI errors
-class VPIException : public std::exception
-{
-public:
-    VPIException(VPIStatus status)
-        : msg("VPI error: " + std::string(vpiStatusGetName(status))) {}
+using namespace cv;
 
-    const char *what() const noexcept override
+/// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
+/// @param descriptors
+/// @param keypoints 
+/// @param numKeypoints 
+/// @param frameNumber 
+/// @return The encoded string
+std::string encoder(cv::Mat descriptors, std::vector<KeyPoint> keypoints, int numKeypoints, int frameNumber)
+{
+    std::ostringstream ss;
+    ss << frameNumber << ";" << numKeypoints << ";";
+
+    // Encode the keypoints and descriptors
+    for (int i = 0; i < numKeypoints; ++i)
     {
-        return msg.c_str();
+        // Encode the descriptor to 32 characters
+        for (int j = 0; j < 32; ++j)
+        {
+            unsigned char byte = descriptors.at<unsigned char>(i, j);
+
+            ss << byte;
+        } 
+
+        ss << ";";
+
+        // Encode the keypoint
+        ss << keypoints[i].pt.x << "," << keypoints[i].pt.y << ";";
     }
 
-private:
-    std::string msg;
-};
-
-// Wrapper function for VPI calls
-template <typename Func, typename... Args>
-void vpiCall(Func func, Args... args)
-{
-    VPIStatus status = func(args...);
-    if (status != VPI_SUCCESS)
-    {
-        throw VPIException(status);
-    }
+    return ss.str();
 }
 
 /**
@@ -62,11 +57,6 @@ void vpiCall(Func func, Args... args)
  */
 int main(int argc, char *argv[])
 {
-    // OpenCV image that will be wrapped by a VPIImage.
-    // Define it here so that it's destroyed *after* wrapper is destroyed
-    VPIPayload orbPayload = NULL;
-    VPIStream stream = NULL;
-
     int returnValue = 0;
 
     // Parse parameters
@@ -76,7 +66,6 @@ int main(int argc, char *argv[])
     }
 
     int numOfFrames = std::stoi(argv[2]);
-    VPIBackend backend = argv[1] == "cuda" ? VPI_BACKEND_CUDA : VPI_BACKEND_CPU;
 
 // ========================
 // Process frame by frame
@@ -92,120 +81,48 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    try
+    //      CV ORB creation
+    //      ---------------------
+    std::vector<KeyPoint> keypoints;
+    Mat descriptors;
+    int nFeatures = 1000;
+    Ptr<ORB> orb = ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    //      ---------------------
+
+    // Initialize a timer
+    cv::TickMeter timer;
+    timer.start();
+
+    cv::Mat frame;
+    inputCamera >> frame; // Fetch a new frame from camera.
+
+    // Setup a worker stream
+    cvORBNetStream netStream;
+    netStream.Init(9999);
+
+    // Process each frame
+    for (int i = 0; i < numOfFrames; ++i)
     {
-        //      ---------------------
-        VPIORBParams orbParams;
-        // Create the stream that will be processed in the provided backend
-        vpiCall(vpiStreamCreate, backend, &stream);
-        vpiCall(vpiInitORBParams, &orbParams);
-        orbParams.fastParams.intensityThreshold = 30;
-        orbParams.maxFeatures = 5;
-        //      ---------------------
-
-        // Initialize a timer
-        cv::TickMeter timer;
-        timer.start();
-
-        // Declare VPI objects
-        VPIPyramid pyrInput = NULL;
-        VPIImage vpiFrame = NULL;
-        VPIImage vpiFrameGrayScale = NULL;
-        VPIArray keypoints = NULL;
-        VPIArray descriptors = NULL;
-
-        cv::Mat frame;
+        printf("processing frame %d\n", i);
         inputCamera >> frame; // Fetch a new frame from camera.
-        vpiCall(vpiImageCreate, frame.cols, frame.rows, VPI_IMAGE_FORMAT_U8, 0, &vpiFrameGrayScale);
 
-        // Setup a worker stream
-        cvORBNetStream netStream;
-        netStream.Init(9999);
+        // ---------------------
+        // Process the frame
+        // ---------------------
+        orb->detectAndCompute(frame, Mat(), keypoints, descriptors);
+        int numKeypoints = keypoints.size();
 
-        // Create the output keypoint array.
-        vpiCall(vpiArrayCreate,
-                orbParams.maxFeatures,
-                VPI_ARRAY_TYPE_KEYPOINT_F32,
-                backend | VPI_BACKEND_CPU,
-                &keypoints);
-
-        // Create the output descriptors array.
-        vpiCall(vpiArrayCreate,
-                orbParams.maxFeatures,
-                VPI_ARRAY_TYPE_BRIEF_DESCRIPTOR,
-                backend | VPI_BACKEND_CPU,
-                &descriptors);
-
-        // Create the payload for ORB Feature Detector algorithm
-        vpiCall(vpiCreateORBFeatureDetector, backend, 10000, &orbPayload);
-
-        // Create the pyramid
-        vpiCall(vpiPyramidCreate, frame.cols, frame.rows, VPI_IMAGE_FORMAT_U8, orbParams.pyramidLevels, 0.5,
-                backend, &pyrInput);
-
-        // Process each frame
-        for (int i = 0; i < numOfFrames; ++i)
-        {
-            printf("processing frame %d\n", i);
-            inputCamera >> frame; // Fetch a new frame from camera.
-
-            // We now wrap the loaded image into a VPIImage object to be used by VPI.
-            // VPI won't make a copy of it, so the original image must be in scope at all times.
-            if (i == 0)
-            {
-                vpiImageCreateWrapperOpenCVMat(frame, 0, &vpiFrame);
-            }
-            else
-            {
-                vpiImageSetWrappedOpenCVMat(vpiFrame, frame);
-            }
-
-            // ---------------------
-            // Process the frame
-            // ---------------------
-
-            // Convert to grayscale
-            vpiCall(vpiSubmitConvertImageFormat, stream, backend, vpiFrame, vpiFrameGrayScale, nullptr);
-
-            // Submit the pyramid generator
-            vpiCall(vpiSubmitGaussianPyramidGenerator, stream, backend,
-                    vpiFrameGrayScale, pyrInput, VPI_BORDER_CLAMP);
-
-            // Detect ORB features
-            vpiCall(vpiSubmitORBFeatureDetector, stream, backend, orbPayload,
-                    pyrInput, keypoints, descriptors, &orbParams, VPI_BORDER_CLAMP);
-
-            // TODO: Do we need this?
-            vpiCall(vpiStreamSync, stream);
-
-            // Stream it out
-            int32_t numKeypoints;
-            vpiCall(vpiArrayGetSize, keypoints, &numKeypoints);
-
-            // Encode and Send
-            netStream.SendFrame(EncodeKeypoints(keypoints, descriptors, numKeypoints, i));
-        }
-
-        vpiArrayDestroy(keypoints);
-        vpiArrayDestroy(descriptors);
-        vpiImageDestroy(vpiFrame);
-        vpiImageDestroy(vpiFrameGrayScale);
-        vpiPyramidDestroy(pyrInput);
-
-        // Stop the timer
-        timer.stop();
-        printf("Processing time per frame: %f ms\n", timer.getTimeMilli() / numOfFrames);
+        std::cout << "Number of keypoints: " << numKeypoints << std::endl;
+        // Encode and Send
+        netStream.SendFrame(encoder(descriptors, keypoints, numKeypoints, i));
     }
-    catch (const VPIException &e)
-    {
-        std::cerr << e.what() << '\n';
-        returnValue = -1;
-    }
+
+    // Stop the timer
+    timer.stop();
+    printf("Processing time per frame: %f ms\n", timer.getTimeMilli() / numOfFrames);
 
     // Cleanup
     inputCamera.release();
-    vpiPayloadDestroy(orbPayload);
-    vpiStreamDestroy(stream);
 
     return returnValue;
 }

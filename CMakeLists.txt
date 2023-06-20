@@ -6,8 +6,8 @@ find_package(vpi 2.2 REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(ZeroMQ REQUIRED)
 
-add_executable(${PROJECT_NAME} main.cpp encoder.cpp decoder.cpp VPINetStream.cpp)
+add_executable(${PROJECT_NAME} main.cpp encoder.cpp decoder.cpp cvORBNetStream.cpp)
 target_link_libraries(${PROJECT_NAME} vpi zmq opencv_imgproc opencv_core opencv_imgcodecs opencv_features2d opencv_videoio)
 
-add_executable(${PROJECT_NAME}_processor crudeProcessor.cpp encoder.cpp decoder.cpp VPINetStream.cpp)
+add_executable(${PROJECT_NAME}_processor crudeProcessor.cpp encoder.cpp decoder.cpp cvORBNetStream.cpp)
 target_link_libraries(${PROJECT_NAME}_processor vpi zmq)

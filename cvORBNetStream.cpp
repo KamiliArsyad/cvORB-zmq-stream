@@ -1,4 +1,4 @@
-#include "VPINetStream.h"
+#include "cvORBNetStream.h"
 #include <iostream>
 
 cvORBNetStream::cvORBNetStream()
