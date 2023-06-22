@@ -1,11 +1,13 @@
 #include "./cvORBNetStream.h"
 
 #include <opencv2/core/version.hpp>
-#include <opencv2/features2d.hpp>
+// #include <opencv2/features2d.hpp>
+#include <opencv2/cudafeatures2d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/core/core.hpp>
+#include <opencv4/opencv2/core/cuda.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/cuda.hpp>
 
@@ -18,7 +20,7 @@
 #include <exception>
 #define DEBUG 1
 
-using namespace cv;
+using namespace cv::cuda;
 
 /// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
 /// @param descriptors
@@ -26,7 +28,7 @@ using namespace cv;
 /// @param numKeypoints 
 /// @param frameNumber 
 /// @return The encoded string
-std::string encoder(cv::Mat descriptors, std::vector<KeyPoint> keypoints, int numKeypoints, int frameNumber)
+std::string encoder(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int numKeypoints, int frameNumber)
 {
     std::ostringstream ss;
     ss << frameNumber << ";" << numKeypoints << ";";
@@ -83,18 +85,23 @@ int main(int argc, char *argv[])
 
     //      CV ORB creation
     //      ---------------------
-    std::vector<KeyPoint> keypoints;
-    Mat descriptors;
-    int nFeatures = 1000;
-    Ptr<ORB> orb = ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<cv::KeyPoint> keypoints;
+    GpuMat descriptors;
+    cv::Mat descriptorsCPU;
+    // cv::Mat descriptors;
+    int nFeatures = 10000;
+    std::cout << "OpenCV version: " << CV_VERSION << std::endl;
+    cv::Ptr<ORB> orb = ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, cv::ORB::HARRIS_SCORE, 31, 20, true);
     //      ---------------------
 
     // Initialize a timer
     cv::TickMeter timer;
     timer.start();
 
-    cv::Mat frame;
+    cv::Mat frame, frameGray;
     inputCamera >> frame; // Fetch a new frame from camera.
+    cv::cvtColor(frame, frameGray, cv::COLOR_BGR2GRAY);
+    GpuMat frameGPU(frameGray);
 
     // Setup a worker stream
     cvORBNetStream netStream;
@@ -109,12 +116,18 @@ int main(int argc, char *argv[])
         // ---------------------
         // Process the frame
         // ---------------------
-        orb->detectAndCompute(frame, Mat(), keypoints, descriptors);
+        // orb->detectAndCompute(frame, cv::Mat(), keypoints, descriptors);
+        cv::cvtColor(frame, frameGray, cv::COLOR_BGR2GRAY);
+        frameGPU.upload(frameGray);
+        orb->detectAndCompute(frameGPU, GpuMat(), keypoints, descriptors);
+        // orb->detect(frameGPU, keypoints);
         int numKeypoints = keypoints.size();
+        // ---------------------
+        descriptors.download(descriptorsCPU);
 
         std::cout << "Number of keypoints: " << numKeypoints << std::endl;
         // Encode and Send
-        netStream.SendFrame(encoder(descriptors, keypoints, numKeypoints, i));
+        // netStream.SendFrame(encoder(descriptorsCPU, keypoints, numKeypoints, i));
     }
 
     // Stop the timer
