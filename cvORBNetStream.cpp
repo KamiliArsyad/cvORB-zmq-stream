@@ -29,27 +29,18 @@ int cvORBNetStream::Init(int port)
   return 0;
 }
 
-int cvORBNetStream::Init(std::string ip, int port)
-{
-  assert(this->port == 0); // Make sure the port hasn't been set yet (can't reinitialize)
-  this->ip = ip;
-  this->port = port;
-  socket = zmq::socket_t(context, zmq::socket_type::req);
-  socket.connect("tcp://" + ip + ":" + std::to_string(port));
-  return 0;
-}
-
 int cvORBNetStream::SendFrame(std::string encodedFrame)
 {
   zmq::message_t request(encodedFrame.size());
   memcpy(request.data(), encodedFrame.c_str(), encodedFrame.size());
+  std::cout << "sending frame .." << std::endl;
 
   // TODO: What if there's no request? Add a buffer with a safe-distancing semaphore.
   try
   {
     zmq::message_t temp;
-    socket.recv(temp, zmq::recv_flags::dontwait);
-    socket.send(request, zmq::send_flags::dontwait);
+    socket.recv(temp, zmq::recv_flags::none);
+    socket.send(request, zmq::send_flags::none);
   }
   catch (zmq::error_t e)
   {
@@ -58,29 +49,5 @@ int cvORBNetStream::SendFrame(std::string encodedFrame)
   }
 
   return 0;
-}
-
-FrameData cvORBNetStream::ReceiveFrame()
-{
-  zmq::message_t reply;
-  try
-  {
-    zmq::message_t request(1);
-    memcpy(request.data(), "1", 1);
-    socket.send(request, zmq::send_flags::none);
-
-    socket.recv(reply, zmq::recv_flags::none);
-  }
-  catch (zmq::error_t e)
-  {
-    std::cout << "Error receiving frame: " << e.what() << std::endl;
-    FrameData frameData;
-    frameData.frameNumber = -1;
-    return frameData;
-  }
-
-  std::string encodedFrame = std::string(static_cast<char*>(reply.data()), reply.size());
-  FrameData frameData = DecodeKeypoints(encodedFrame);
-  return frameData;
 }
 
