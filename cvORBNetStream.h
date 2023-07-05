@@ -12,7 +12,6 @@ class cvORBNetStream
     zmq::context_t context;
     zmq::socket_t socket;
     int port = 0;
-    std::string ip;
   public:
     cvORBNetStream();
     ~cvORBNetStream();
@@ -26,7 +25,7 @@ class cvORBNetStream
     int Init(int port);
 
     /**
-     * Send an encoded frame. 
+     * Send an encoded frame.
      * @param encodedFrame The encoded frame to send.
      * @return 0 if successful, -1 otherwise.
      */

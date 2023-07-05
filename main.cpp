@@ -17,6 +17,9 @@
 #include <bitset>
 #include <fstream>
 #include <numeric>
+#include <condition_variable>
+#include <thread>
+#include <mutex>
 
 #define USE_CUDA true
 
@@ -24,9 +27,9 @@ using namespace cv;
 
 /// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
 /// @param descriptors
-/// @param keypoints 
-/// @param numKeypoints 
-/// @param frameNumber 
+/// @param keypoints
+/// @param numKeypoints
+/// @param frameNumber
 /// @return The encoded string
 std::string encoder(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int numKeypoints, int frameNumber)
 {
@@ -42,7 +45,7 @@ std::string encoder(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, in
             unsigned char byte = descriptors.at<unsigned char>(i, j);
 
             ss << byte;
-        } 
+        }
 
         ss << ";";
 
@@ -69,6 +72,12 @@ std::vector<KeyPoint> ANMS_SSC(std::vector<KeyPoint> unsortedKeypoints, int numR
 
 void LoadImages(const std::string &strImagePath, const std::string &strPathTimes,
                 std::vector<std::string> &vstrImages, std::vector<double> &vTimeStamps);
+
+void sendAsync(cvORBNetStream &orbStream, cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNum)
+{
+  orbStream.SendFrame(encoder(descriptors, keypoints, keypoints.size(), frameNum));
+}
+
 /**
  * First argument: backend (<cpu|cuda>)
  * Second argument: the sequence directory
@@ -100,7 +109,8 @@ int main(int argc, char *argv[])
   //      ---------------------
   std::vector<KeyPoint> keypoints;
   std::vector<KeyPoint> filteredKeypoints;
-  int nFeatures = 10000;
+  int nFeatures = 3000;
+  int numKeyPoints = 0;
   cuda::GpuMat descriptors;
   Mat descriptorsCPU;
   Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20, false);
@@ -127,31 +137,79 @@ int main(int argc, char *argv[])
   cvORBNetStream orbStream;
   orbStream.Init(9999);
 
+  // Setup a thread and its corresponding synchronization mechanism for loading the images
+  std::mutex mtx;
+  std::condition_variable convar;
+  bool ready = false;
+
+  std::thread image_loading_thread([&]()
+  {
+    for (int i = 0; i < numOfFrames; i++)
+    {
+      cv::Mat new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
+
+      // wait until the main thread is ready for the next image
+      std::unique_lock<std::mutex> lock(mtx);
+      convar.wait(lock, [&]() { return ready; });
+
+      // main thread is ready
+      frame = new_frame;
+      ready = false;
+
+      // Notify
+      convar.notify_one();
+    }
+  });
+
+  std::thread sendAsyncThread;
+
   // Process each frame
   for (int i = 0; i < numOfFrames; i++)
   {
     printf("processing frame %d\n", i);
-    // This processs by itself takes around 40 ms to complete. Be wary of this as it is a huge bottleneck.
-    frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
+    // Image reading -----------------------------------------------
+    // Indicate that we're ready for the next image
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        ready = true;
+    }
+    convar.notify_one();
+
+    // Wait until the image loading thread gives us the next image
+    std::unique_lock<std::mutex> lock(mtx);
+    convar.wait(lock, [&]() { return !ready; });
+    // reading done -------------------------------------------------
 
     // ---------------------
     // Process the frame
     // ---------------------
     frameGPU.upload(frame);
+
     cv::TickMeter t;
     t.start();
-    fastDetector->detect(frameGPU, keypoints);
-    filteredKeypoints = ANMS_SSC(keypoints, 800, 0.1, frame.cols, frame.rows);
-    // filteredKeypoints = keypoints;
+    orb->detect(frameGPU, keypoints);
 
-    // orb->compute(frameGPU, filteredKeypoints, descriptors);
-    orbCPU->compute(frame, filteredKeypoints, descriptorsCPU);
+    // filteredKeypoints = i < 10 ? keypoints : ANMS_SSC(keypoints, 1000, 0.1, frame.cols, frame.rows);
+    filteredKeypoints = keypoints;
+
+    orb->compute(frameGPU, filteredKeypoints, descriptors);
+    // orbCPU->compute(frame, filteredKeypoints, descriptorsCPU);
     t.stop();
     std::cout << "Time to detect and compute ORB descriptors: " << t.getTimeMilli() << "ms" << std::endl;
-    // descriptors.download(descriptorsCPU);
-    int numKeyPoints = filteredKeypoints.size();
-    orbStream.SendFrame(encoder(descriptorsCPU, filteredKeypoints, numKeyPoints, i));
+
+    cv::TickMeter tSF;
+    tSF.start();
+
+    descriptors.download(descriptorsCPU);
+    if (i > 0) sendAsyncThread.join();
+    sendAsyncThread = std::thread(sendAsync, std::ref(orbStream), descriptorsCPU, filteredKeypoints, i);
+
+    tSF.stop();
+    std::cout << "Sent " << filteredKeypoints.size() << " kpts in " << tSF.getTimeMilli() << "ms" << std::endl;
   }
+
+  sendAsyncThread.join();
+  image_loading_thread.join();
 
   // Stop the timer
   timer.stop();
