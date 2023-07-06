@@ -3,6 +3,7 @@
  * are only ensure that the proposed model is working.
  */
 #include "./cvORBNetStream.h"
+#include "./bufferedORBNetStream.h"
 
 //#include <opencv2/features2d.hpp>
 #include <opencv2/cudafeatures2d.hpp>
@@ -11,6 +12,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/core/cuda.hpp>
+#include <opencv2/cudaimgproc.hpp>
 
 #include <cstring> // for memset
 #include <iostream>
@@ -109,7 +111,7 @@ int main(int argc, char *argv[])
   //      ---------------------
   std::vector<KeyPoint> keypoints;
   std::vector<KeyPoint> filteredKeypoints;
-  int nFeatures = 3000;
+  int nFeatures = 2000;
   int numKeyPoints = 0;
   cuda::GpuMat descriptors;
   Mat descriptorsCPU;
@@ -118,11 +120,6 @@ int main(int argc, char *argv[])
   fastDetector->setMaxNumPoints(nFeatures);
   Ptr<cv::ORB> orbCPU = cv::ORB::create(nFeatures);
   //      ---------------------
-
-  // Initialize a timer
-  cv::TickMeter timer;
-  timer.start();
-
   cv::Mat frame;
   frame = cv::imread(vstrImageFilenames[0], cv::IMREAD_UNCHANGED);
 
@@ -134,8 +131,8 @@ int main(int argc, char *argv[])
   }
 
   // Setup a worker stream
-  cvORBNetStream orbStream;
-  orbStream.Init(9999);
+  // cvORBNetStream orbStream;
+  // orbStream.Init(9999);
 
   // Setup a thread and its corresponding synchronization mechanism for loading the images
   std::mutex mtx;
@@ -162,10 +159,19 @@ int main(int argc, char *argv[])
   });
 
   std::thread sendAsyncThread;
+  bufferedORBNetStream bufferedORBStream(9999, 200, 0);
+
+  Benchmark bmTotal("computing each frame");
+  Benchmark bmORB("detecting and computing ORB descriptors");
+  Benchmark bmSend("sending frames");
+  
+  cuda::GpuMat frameGPUHist(frame);
+  Ptr<cuda::CLAHE> equalizer = cuda::createCLAHE();
 
   // Process each frame
   for (int i = 0; i < numOfFrames; i++)
   {
+    bmTotal.start();
     printf("processing frame %d\n", i);
     // Image reading -----------------------------------------------
     // Indicate that we're ready for the next image
@@ -183,10 +189,10 @@ int main(int argc, char *argv[])
     // ---------------------
     // Process the frame
     // ---------------------
-    frameGPU.upload(frame);
+    frameGPUHist.upload(frame);
+    equalizer->apply(frameGPUHist, frameGPU);
 
-    cv::TickMeter t;
-    t.start();
+    bmORB.start();
     orb->detect(frameGPU, keypoints);
 
     // filteredKeypoints = i < 10 ? keypoints : ANMS_SSC(keypoints, 1000, 0.1, frame.cols, frame.rows);
@@ -194,26 +200,25 @@ int main(int argc, char *argv[])
 
     orb->compute(frameGPU, filteredKeypoints, descriptors);
     // orbCPU->compute(frame, filteredKeypoints, descriptorsCPU);
-    t.stop();
-    std::cout << "Time to detect and compute ORB descriptors: " << t.getTimeMilli() << "ms" << std::endl;
-
-    cv::TickMeter tSF;
-    tSF.start();
+    bmORB.set();
 
     descriptors.download(descriptorsCPU);
+    /*
     if (i > 0) sendAsyncThread.join();
-    sendAsyncThread = std::thread(sendAsync, std::ref(orbStream), descriptorsCPU, filteredKeypoints, i);
-
-    tSF.stop();
-    std::cout << "Sent " << filteredKeypoints.size() << " kpts in " << tSF.getTimeMilli() << "ms" << std::endl;
+    endAsyncThread = std::thread(sendAsync, std::ref(orbStream), descriptorsCPU, filteredKeypoints, i);
+    */
+    bmSend.start();
+    bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
+    bmSend.set();
+    bmTotal.set();
   }
 
-  sendAsyncThread.join();
+  // sendAsyncThread.join();
   image_loading_thread.join();
 
-  // Stop the timer
-  timer.stop();
-  printf("Processing time per frame: %f ms\n", timer.getTimeMilli() / numOfFrames);
+  bmORB.show();
+  bmSend.show();
+  bmTotal.show();
 
   return returnValue;
 }

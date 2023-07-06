@@ -5,6 +5,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include "./Benchmark.h"
 
 #include <zmq.hpp>
 
@@ -26,6 +27,8 @@ private:
   // The buffer is a deque of encoded frames. Message is pushed to the back and
   // popped from the front.
   std::deque<std::string> buffer;
+  std::deque<cv::Mat> bufferDesc;
+  std::deque<std::vector<cv::KeyPoint>> bufferKpts;
 
   /**
    * Thread to consume the buffer and send the messages. This thread keeps running
@@ -36,8 +39,16 @@ private:
   // The condition variable and mutex to synchronize the buffer.
   std::condition_variable bufferCondition;
   std::mutex bufferMutex;
+  bool bufferEmpty = true;
   bool bufferFull = false;
   bool destroy = false;
+  bool done = false;
+
+  Benchmark bmSendAsync = Benchmark("calling send async");
+  Benchmark bmEncode = Benchmark("encoding the frame");
+  Benchmark bmSendAsyncLock = Benchmark("acquiring lock");
+  Benchmark bmEncodeDescriptor = Benchmark("encoding one 256-bit descriptor");
+  Benchmark bmEncodeKeypoint = Benchmark("encoding one keypoint");
 
   /**
    * Encode the keypoints and their respective descriptors of a frame
