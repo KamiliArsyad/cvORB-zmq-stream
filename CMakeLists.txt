@@ -16,7 +16,8 @@ find_library(ZeroMQ_LIBRARY
 	)
 
 find_package(OpenCV REQUIRED)
+find_package(Threads)
 
-add_executable(${PROJECT_NAME} main.cpp cvORBNetStream.cpp)
+add_executable(${PROJECT_NAME} main.cpp cvORBNetStream.cpp bufferedORBNetStream.cpp Benchmark.cpp)
 target_include_directories(${PROJECT_NAME} PUBLIC ${ZeroMQ_INCLUDE_DIR})
-target_link_libraries(${PROJECT_NAME} PUBLIC ${ZeroMQ_LIBRARY} opencv_cudafeatures2d opencv_imgproc opencv_core opencv_imgcodecs opencv_features2d opencv_videoio)
+target_link_libraries(${PROJECT_NAME} PUBLIC ${ZeroMQ_LIBRARY} opencv_cudaimgproc opencv_cudafeatures2d opencv_imgproc opencv_core opencv_imgcodecs opencv_features2d opencv_videoio ${CMAKE_THREAD_LIBS_INIT})
