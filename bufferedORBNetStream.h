@@ -44,6 +44,9 @@ private:
   bool destroy = false;
   bool done = false;
 
+  /**
+   * Benchmarking variables. Not all of them are used.
+  */
   Benchmark bmSendAsync = Benchmark("calling send async");
   Benchmark bmEncode = Benchmark("encoding the frame");
   Benchmark bmSendAsyncLock = Benchmark("acquiring lock");

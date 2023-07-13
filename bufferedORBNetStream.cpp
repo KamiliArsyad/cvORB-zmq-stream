@@ -46,7 +46,6 @@ void bufferedORBNetStream::messageConsumer()
     std::vector<cv::KeyPoint> kpt = bufferKpts.front();
     bufferKpts.pop_front();
 
-    std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
 
     // Check if the buffer was full
     if (bufferFull && bufferKpts.size() < drainThreshold)
@@ -61,7 +60,10 @@ void bufferedORBNetStream::messageConsumer()
 
     // Send the message
     std::cout << "mutex unlocked. Calling sendFrame on frame " << num << " ...";
+    bmSendAsync.start();
+    std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
     sendFrame(message);
+    bmSendAsync.set();
     std::cout << "done" << std::endl;
     
     if (destroy && bufferKpts.empty())
@@ -70,8 +72,6 @@ void bufferedORBNetStream::messageConsumer()
       done = true;
     }
   }
-
-  std::cout << "No more frame to send .." << std::endl;
 }
 
 /// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
@@ -131,14 +131,6 @@ void bufferedORBNetStream::sendFrame(std::string encodedFrame)
 */
 void bufferedORBNetStream::encodeAndSendFrameAsync(std::vector<cv::KeyPoint> keypoints, cv::Mat descriptors, int numKeypoints, int frameNumber)
 {
-  bmSendAsync.start();
-  /*
-  bmEncode.start();
-  std::string encodedFrame = encodeKeypoints(descriptors, keypoints, numKeypoints, frameNumber);
-  bmEncode.set();
-  */
-
-  bmSendAsyncLock.start();
   // Acquire lock to mutex
   std::unique_lock<std::mutex> lock(bufferMutex);
 
@@ -147,7 +139,6 @@ void bufferedORBNetStream::encodeAndSendFrameAsync(std::vector<cv::KeyPoint> key
   {
     bufferCondition.wait(lock, [this] { return !bufferFull; });
   }
-  bmSendAsyncLock.set();
 
   // Perform amortization if there exists a message in the buffer
   if (buffer.size() > 0)
@@ -167,7 +158,6 @@ void bufferedORBNetStream::encodeAndSendFrameAsync(std::vector<cv::KeyPoint> key
     bufferFull = true;
   }
 
-  bmSendAsync.set();
   // Notify the consumer that the buffer is no longer empty
   bufferCondition.notify_one();
 
@@ -185,6 +175,5 @@ bufferedORBNetStream::~bufferedORBNetStream()
   }
   std::cout << "Sending thread shut down" << std::endl;
   bmSendAsync.show();
-  bmSendAsyncLock.show();
   socket.close();
 }

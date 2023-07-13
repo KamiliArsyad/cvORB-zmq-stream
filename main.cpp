@@ -23,40 +23,7 @@
 #include <thread>
 #include <mutex>
 
-#define USE_CUDA true
-
 using namespace cv;
-
-/// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
-/// @param descriptors
-/// @param keypoints
-/// @param numKeypoints
-/// @param frameNumber
-/// @return The encoded string
-std::string encoder(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int numKeypoints, int frameNumber)
-{
-    std::ostringstream ss;
-    ss << frameNumber << ";" << numKeypoints << ";";
-
-    // Encode the keypoints and descriptors
-    for (int i = 0; i < numKeypoints; ++i)
-    {
-        // Encode the descriptor to 32 characters
-        for (int j = 0; j < 32; ++j)
-        {
-            unsigned char byte = descriptors.at<unsigned char>(i, j);
-
-            ss << byte;
-        }
-
-        ss << ";";
-
-        // Encode the keypoint
-        ss << keypoints[i].pt.x << "," << keypoints[i].pt.y << ";";
-    }
-
-    return ss.str();
-}
 
 /**
  * @brief Adaptive Non-Maximal Suppression (ANMS) using Supresion via Square Covering (SSC).
@@ -74,11 +41,6 @@ std::vector<KeyPoint> ANMS_SSC(std::vector<KeyPoint> unsortedKeypoints, int numR
 
 void LoadImages(const std::string &strImagePath, const std::string &strPathTimes,
                 std::vector<std::string> &vstrImages, std::vector<double> &vTimeStamps);
-
-void sendAsync(cvORBNetStream &orbStream, cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNum)
-{
-  orbStream.SendFrame(encoder(descriptors, keypoints, keypoints.size(), frameNum));
-}
 
 /**
  * First argument: backend (<cpu|cuda>)
@@ -111,18 +73,21 @@ int main(int argc, char *argv[])
   //      ---------------------
   std::vector<KeyPoint> keypoints;
   std::vector<KeyPoint> filteredKeypoints;
-  int nFeatures = 2000;
-  int numKeyPoints = 0;
   cuda::GpuMat descriptors;
+  int nFeatures = 2500;
+  int numKeyPoints = 0;
   Mat descriptorsCPU;
-  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20, false);
+  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20, true);
+  //      ---------------------
+  //      UNUSED
+  //      ---------------------
   Ptr<cuda::FastFeatureDetector> fastDetector = cuda::FastFeatureDetector::create(15);
   fastDetector->setMaxNumPoints(nFeatures);
   Ptr<cv::ORB> orbCPU = cv::ORB::create(nFeatures);
   //      ---------------------
+
   cv::Mat frame;
   frame = cv::imread(vstrImageFilenames[0], cv::IMREAD_UNCHANGED);
-
   cuda::GpuMat frameGPU(frame);
 
   if (frame.empty())
@@ -130,43 +95,43 @@ int main(int argc, char *argv[])
     throw std::runtime_error("Couldn't load image");
   }
 
-  // Setup a worker stream
-  // cvORBNetStream orbStream;
-  // orbStream.Init(9999);
-
   // Setup a thread and its corresponding synchronization mechanism for loading the images
-  std::mutex mtx;
-  std::condition_variable convar;
+  std::mutex mtxImageLoader;
+  std::condition_variable convarImageLoader;
   bool ready = false;
 
   std::thread image_loading_thread([&]()
   {
+    cv::VideoCapture vid(0);
     for (int i = 0; i < numOfFrames; i++)
     {
       cv::Mat new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
+      /*
+      cv::Mat new_frame_color;
+      cv::Mat new_frame;
+      vid >> new_frame_color;
+
+      cv::cvtColor(new_frame_color, new_frame, cv::COLOR_BGR2GRAY);
+      */
 
       // wait until the main thread is ready for the next image
-      std::unique_lock<std::mutex> lock(mtx);
-      convar.wait(lock, [&]() { return ready; });
+      std::unique_lock<std::mutex> lock(mtxImageLoader);
+      convarImageLoader.wait(lock, [&]() { return ready; });
 
       // main thread is ready
       frame = new_frame;
       ready = false;
 
       // Notify
-      convar.notify_one();
+      convarImageLoader.notify_one();
     }
   });
 
-  std::thread sendAsyncThread;
-  bufferedORBNetStream bufferedORBStream(9999, 200, 0);
+  bufferedORBNetStream bufferedORBStream(9999, 200, 3);
 
   Benchmark bmTotal("computing each frame");
   Benchmark bmORB("detecting and computing ORB descriptors");
   Benchmark bmSend("sending frames");
-  
-  cuda::GpuMat frameGPUHist(frame);
-  Ptr<cuda::CLAHE> equalizer = cuda::createCLAHE();
 
   // Process each frame
   for (int i = 0; i < numOfFrames; i++)
@@ -176,44 +141,40 @@ int main(int argc, char *argv[])
     // Image reading -----------------------------------------------
     // Indicate that we're ready for the next image
     {
-        std::lock_guard<std::mutex> lock(mtx);
+        std::lock_guard<std::mutex> lock(mtxImageLoader);
         ready = true;
     }
-    convar.notify_one();
+    convarImageLoader.notify_one();
 
     // Wait until the image loading thread gives us the next image
-    std::unique_lock<std::mutex> lock(mtx);
-    convar.wait(lock, [&]() { return !ready; });
+    std::unique_lock<std::mutex> lock(mtxImageLoader);
+    convarImageLoader.wait(lock, [&]() { return !ready; });
     // reading done -------------------------------------------------
 
     // ---------------------
     // Process the frame
     // ---------------------
-    frameGPUHist.upload(frame);
-    equalizer->apply(frameGPUHist, frameGPU);
+    frameGPU.upload(frame);
 
     bmORB.start();
     orb->detect(frameGPU, keypoints);
 
-    // filteredKeypoints = i < 10 ? keypoints : ANMS_SSC(keypoints, 1000, 0.1, frame.cols, frame.rows);
+    // Unused ANMS_SSC
+    // filteredKeypoints = ANMS_SSC(keypoints, 1000, 0.1, frame.cols, frame.rows);
+    // orbCPU->compute(frame, filteredKeypoints, descriptorsCPU);
     filteredKeypoints = keypoints;
 
     orb->compute(frameGPU, filteredKeypoints, descriptors);
-    // orbCPU->compute(frame, filteredKeypoints, descriptorsCPU);
     bmORB.set();
 
     descriptors.download(descriptorsCPU);
-    /*
-    if (i > 0) sendAsyncThread.join();
-    endAsyncThread = std::thread(sendAsync, std::ref(orbStream), descriptorsCPU, filteredKeypoints, i);
-    */
+    
     bmSend.start();
     bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
     bmSend.set();
     bmTotal.set();
   }
 
-  // sendAsyncThread.join();
   image_loading_thread.join();
 
   bmORB.show();
