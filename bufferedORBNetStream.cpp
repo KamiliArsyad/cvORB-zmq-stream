@@ -11,6 +11,9 @@ bufferedORBNetStream::bufferedORBNetStream(int port, int bufferSize, int amortiz
   std::cout << "Initialized buffered streamer at port " << this->port << std::endl;
 }
 
+/**
+ * The message consumer thread. Consumes the buffer and sends the messages.
+*/
 void bufferedORBNetStream::messageConsumer()
 {
   float drainRatio = 0.75;
@@ -108,6 +111,10 @@ std::string bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vect
   return ss.str();
 }
 
+/**
+ * Send the encoded frame to the specified port. This process blocks until a request is received and the message is sent.
+ * @param encodedFrame The encoded frame to send
+*/
 void bufferedORBNetStream::sendFrame(std::string encodedFrame)
 {
   zmq::message_t request(encodedFrame.size());

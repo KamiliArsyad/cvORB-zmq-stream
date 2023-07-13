@@ -36,7 +36,7 @@ private:
   */
   std::thread messageConsumerThread;
 
-  // The condition variable and mutex to synchronize the buffer.
+  // The conditional variable and mutex to synchronize the buffer.
   std::condition_variable bufferCondition;
   std::mutex bufferMutex;
   bool bufferEmpty = true;
@@ -73,6 +73,10 @@ public:
    *                              sending the next message if there exists a message in the buffer.
   */
   bufferedORBNetStream(int port, int bufferSize, int amortizationConstant);
+
+  /**
+   * Destructor. Joins the message consumer thread. This might take a while as the thread empties the buffer if it's not empty.
+  */
   ~bufferedORBNetStream();
 
   /**
@@ -85,6 +89,13 @@ public:
                          Mat descriptorsArray, int numKeypoints,
                          int frameNumber);
   
+  /**
+   * Appends the encoded frame to the buffer to be consumed by the messageConsumerThread. The message consumer thread automatically consumes the buffer and sends the messages.
+   * @param keypoints The keypoints to encode and send.
+   * @param descriptors The descriptors to encode and send.
+   * @param numKeypoints The number of keypoints.
+   * @param frameNumber The frame number.
+  */
   void encodeAndSendFrameAsync(std::vector<KeyPoint> keypoints,
                                Mat descriptors, int numKeypoints,
                                int frameNumber);
