@@ -51,9 +51,9 @@ int main(int argc, char *argv[])
   int returnValue = 0;
 
   // Parse parameters
-  if (argc != 3)
+  if (argc != 4)
   {
-    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <path_to_image_folder>" + " <path_to_times_file>");
+    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <path_to_image_folder>" + " <path_to_times_file>" + " <path_to_settings_file");
   }
 
   std::vector<std::string> vstrImageFilenames;
@@ -69,18 +69,41 @@ int main(int argc, char *argv[])
     throw std::runtime_error("Couldn't load images");
   }
 
+  // ---------------------
+  // Load the settings file
+  // ---------------------
+  cv::FileStorage fsSettings(argv[3], cv::FileStorage::READ);
+  
+  // Check
+  if (!fsSettings.isOpened())
+  {
+    throw std::runtime_error("Could not open settings file");
+  }
+
+  // ---------------------
+  // Limit the number of frames to whatever is set in the settings file
+  // ---------------------
+  int maxFrames = fsSettings["maxFrames"];
+  numOfFrames = std::min(numOfFrames, maxFrames);
+
   //      CV ORB creation
   //      ---------------------
   std::vector<KeyPoint> keypoints;
   std::vector<KeyPoint> filteredKeypoints;
   cuda::GpuMat descriptors;
-  int nFeatures = 2500;
-  int numKeyPoints = 0;
+  int nFeatures = fsSettings["ORBExtractor.nFeatures"];
+  float fScaleFactor = fsSettings["ORBExtractor.scaleFactor"];
+  int nLevels = fsSettings["ORBExtractor.nLevels"];
+  int fIniThFAST = fsSettings["ORBExtractor.iniThFAST"];
+  int blurForDescriptor = fsSettings["ORBExtractor.blurForDescriptor"];
   Mat descriptorsCPU;
-  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20, true);
+
+  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, fScaleFactor, nLevels, 31, 0, 2, ORB::HARRIS_SCORE, 31, fIniThFAST, blurForDescriptor); 
+
   //      ---------------------
   //      UNUSED
   //      ---------------------
+  int numKeyPoints = 0;
   Ptr<cuda::FastFeatureDetector> fastDetector = cuda::FastFeatureDetector::create(15);
   fastDetector->setMaxNumPoints(nFeatures);
   Ptr<cv::ORB> orbCPU = cv::ORB::create(nFeatures);
@@ -127,7 +150,7 @@ int main(int argc, char *argv[])
     }
   });
 
-  bufferedORBNetStream bufferedORBStream(9999, 200, 3);
+  bufferedORBNetStream bufferedORBStream(fsSettings["bufferedORBNetStream.port"], fsSettings["bufferedORBNetStream.bufferSize"], fsSettings["bufferedORBNetStream.amortizationDelay"]);
 
   Benchmark bmTotal("computing each frame");
   Benchmark bmORB("detecting and computing ORB descriptors");

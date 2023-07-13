@@ -1,0 +1,35 @@
+%YAML:1.0
+
+# Maximum number of frames to process
+maxFrames: 50
+
+#----------------------------------------------------------
+# ORB Parameters
+#----------------------------------------------------------
+# ORB Extractor: Number of features
+ORBExtractor.nFeatures: 2500
+
+# ORB Extractor: Scale factor between levels in the scale pyramid
+ORBExtractor.scaleFactor: 1.2
+
+# ORB Extractor: Number of levels in the scale pyramid
+ORBExtractor.nLevels: 8
+
+# ORB Extractor: Fast threshold
+ORBExtractor.iniThFAST: 20
+
+# ORB Extractor: Blur for descriptor computation (0 or 1)
+ORBExtractor.blurForDescriptor: 1
+
+# ----------------------------------------------------------
+# bufferedORBNetStream Parameters
+# ----------------------------------------------------------
+
+# bufferedORBNetStream: Port number to listen on
+bufferedORBNetStream.port: 9999
+
+# bufferedORBNetStream: Number of frames to buffer
+bufferedORBNetStream.bufferSize: 100
+
+# bufferedORBNetStream: Amortization delay in milliseconds
+bufferedORBNetStream.amortizationDelay: 5
