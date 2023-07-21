@@ -61,8 +61,18 @@ private:
    */
   std::string encodeKeypoints(Mat descriptors, std::vector<KeyPoint> keypoints, 
                               int numKeypoints, int frameNumber);
+  
+  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber);
 
+  void decodeKeypoints(zmq::message_t message, cv::Mat& descriptors, std::vector<cv::KeyPoint>& keypoints);
+
+  /**
+   * Thread to consume the buffer and send the messages. This thread keeps running
+   * until the program is terminated or the object is destroyed.
+  */
   void messageConsumer();
+
+
 
 public:
   /**

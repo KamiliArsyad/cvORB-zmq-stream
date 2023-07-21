@@ -69,7 +69,7 @@ void bufferedORBNetStream::messageConsumer()
     std::vector<cv::KeyPoint> kpts_new;
     cv::Mat desc_new;
 
-    decodeKeypoints(encodeKeypoints(desc, kpt, kpt.size(), num), desc_new, kpts_new);
+    decodeKeypoints(encodeKeypoints(desc, kpt, num), desc_new, kpts_new);
     std::string message = encodeKeypoints(desc_new, kpts_new, kpts_new.size(), num);
 
     // std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
