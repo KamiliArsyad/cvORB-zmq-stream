@@ -61,13 +61,22 @@ void bufferedORBNetStream::messageConsumer()
     // Release lock to mutex
     lock.unlock();
 
-    // Send the message
+    // Send the message ---------------------------
     std::cout << "mutex unlocked. Calling sendFrame on frame " << num << " ...";
     bmSendAsync.start();
-    std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
+    
+    // Test the new encoder
+    std::vector<cv::KeyPoint> kpts_new;
+    cv::Mat desc_new;
+
+    decodeKeypoints(encodeKeypoints(desc, kpt, kpt.size(), num), desc_new, kpts_new);
+    std::string message = encodeKeypoints(desc_new, kpts_new, kpts_new.size(), num);
+
+    // std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
     sendFrame(message);
     bmSendAsync.set();
     std::cout << "done" << std::endl;
+    // --------------------------------------------
     
     if (destroy && bufferKpts.empty())
     {
@@ -110,6 +119,80 @@ std::string bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vect
 
   return ss.str();
 }
+
+/// @brief Much faster encoder using memcpy from the descriptors matrix directly to the string
+/// @param descriptors
+/// @param keypoints
+/// @param frameNumber
+/// @return A zmq message
+zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber)
+{
+  // Create a message of size 4 + 2 + 32 * numKeypoints + 4 * numKeypoints
+  // 4 bytes for frameNumber + 2 bytes for numKeypoints + 32 bytes for each descriptor + 4 bytes for each keypoint
+  unsigned short numKeypoints = keypoints.size();
+  int messageSize = 4 + 2 + 32 * numKeypoints + 4 * numKeypoints;
+  zmq::message_t message(messageSize);
+
+  // Encode the frame number
+  memcpy(message.data(), &frameNumber, 4);
+
+  // Encode the number of keypoints
+  memcpy(static_cast<char*>(message.data()) + 4, &numKeypoints, 2);
+
+  // Make sure the descriptors matrix is continuous
+  if (!descriptors.isContinuous())
+  {
+    std::cout << "Descriptors matrix is not continuous" << std::endl;
+    return message;
+  }
+
+  // Encode the descriptors
+  memcpy(static_cast<char*>(message.data()) + 6, descriptors.data, 32 * numKeypoints);
+
+  // Encode the keypoints
+  for (int i = 0; i < numKeypoints; ++i)
+  {
+    // Encode the keypoint
+    unsigned short x = static_cast<unsigned short>(std::floor(keypoints[i].pt.x));
+    unsigned short y = static_cast<unsigned short>(std::floor(keypoints[i].pt.y));
+
+    memcpy(static_cast<char*>(message.data()) + 6 + 32 * numKeypoints + 4 * i, &x, 2);
+    memcpy(static_cast<char*>(message.data()) + 6 + 32 * numKeypoints + 4 * i + 2, &y, 2);
+  }
+
+  return message;
+}
+
+/// @brief Decode the keypoints and descriptors from the encoded zmq message
+/// @param message
+/// @param descriptors The output descriptors matrix
+/// @param keypoints The output keypoints vector
+void bufferedORBNetStream::decodeKeypoints(zmq::message_t message, cv::Mat& descriptors, std::vector<cv::KeyPoint>& keypoints)
+{
+  // Get the frame number
+  int frameNumber;
+  memcpy(&frameNumber, message.data(), 4);
+
+  // Get the number of keypoints
+  unsigned short numKeypoints;
+  memcpy(&numKeypoints, static_cast<char*>(message.data()) + 4, 2);
+
+  // Get the descriptors
+  descriptors = cv::Mat(numKeypoints, 32, CV_8UC1);
+  memcpy(descriptors.data, static_cast<char*>(message.data()) + 6, 32 * numKeypoints);
+
+  // Get the keypoints
+  keypoints.clear();
+  for (int i = 0; i < numKeypoints; ++i)
+  {
+    unsigned short x, y;
+    memcpy(&x, static_cast<char*>(message.data()) + 6 + 32 * numKeypoints + 4 * i, 2);
+    memcpy(&y, static_cast<char*>(message.data()) + 6 + 32 * numKeypoints + 4 * i + 2, 2);
+
+    keypoints.push_back(cv::KeyPoint(x, y, 1));
+  }
+}
+
 
 /**
  * Send the encoded frame to the specified port. This process blocks until a request is received and the message is sent.
