@@ -5,7 +5,7 @@
 #include "./cvORBNetStream.h"
 #include "./bufferedORBNetStream.h"
 
-//#include <opencv2/features2d.hpp>
+// #include <opencv2/features2d.hpp>
 #include <opencv2/cudafeatures2d.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -37,7 +37,6 @@ using namespace cv;
  * @param rows The number of rows in the image.
  */
 std::vector<KeyPoint> ANMS_SSC(std::vector<KeyPoint> unsortedKeypoints, int numRetPoints, float tolerance, int cols, int rows);
-
 
 void LoadImages(const std::string &strImagePath, const std::string &strPathTimes,
                 std::vector<std::string> &vstrImages, std::vector<double> &vTimeStamps);
@@ -73,7 +72,7 @@ int main(int argc, char *argv[])
   // Load the settings file
   // ---------------------
   cv::FileStorage fsSettings(argv[3], cv::FileStorage::READ);
-  
+
   // Check
   if (!fsSettings.isOpened())
   {
@@ -98,7 +97,7 @@ int main(int argc, char *argv[])
   int blurForDescriptor = fsSettings["ORBExtractor.blurForDescriptor"];
   Mat descriptorsCPU;
 
-  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, fScaleFactor, nLevels, 31, 0, 2, ORB::HARRIS_SCORE, 31, fIniThFAST, blurForDescriptor); 
+  Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, fScaleFactor, nLevels, 31, 0, 2, ORB::HARRIS_SCORE, 31, fIniThFAST, blurForDescriptor);
 
   //      ---------------------
   //      UNUSED
@@ -124,8 +123,14 @@ int main(int argc, char *argv[])
   bool ready = false;
 
   std::thread image_loading_thread([&]()
-  {
-    cv::VideoCapture vid(0);
+                                   {
+    cv::VideoCapture vid;
+    vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
+    if (!vid.isOpened()) 
+    {
+      std::cerr << "ERROR! Unable to open camera\n";
+    }
+
     for (int i = 0; i < numOfFrames; i++)
     {
       cv::Mat new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
@@ -147,8 +152,7 @@ int main(int argc, char *argv[])
 
       // Notify
       convarImageLoader.notify_one();
-    }
-  });
+    } });
 
   bufferedORBNetStream bufferedORBStream(fsSettings["bufferedORBNetStream.port"], fsSettings["bufferedORBNetStream.bufferSize"], fsSettings["bufferedORBNetStream.amortizationDelay"]);
 
@@ -164,14 +168,15 @@ int main(int argc, char *argv[])
     // Image reading -----------------------------------------------
     // Indicate that we're ready for the next image
     {
-        std::lock_guard<std::mutex> lock(mtxImageLoader);
-        ready = true;
+      std::lock_guard<std::mutex> lock(mtxImageLoader);
+      ready = true;
     }
     convarImageLoader.notify_one();
 
     // Wait until the image loading thread gives us the next image
     std::unique_lock<std::mutex> lock(mtxImageLoader);
-    convarImageLoader.wait(lock, [&]() { return !ready; });
+    convarImageLoader.wait(lock, [&]()
+                           { return !ready; });
     // reading done -------------------------------------------------
 
     // ---------------------
@@ -191,7 +196,7 @@ int main(int argc, char *argv[])
     bmORB.set();
 
     descriptors.download(descriptorsCPU);
-    
+
     bmSend.start();
     bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
     bmSend.set();
