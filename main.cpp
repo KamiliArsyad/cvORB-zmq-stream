@@ -23,6 +23,8 @@
 #include <thread>
 #include <mutex>
 
+#define DEMO_MODE 1 // Demo mode will send the images to the server as well
+
 using namespace cv;
 
 /**
@@ -124,12 +126,12 @@ int main(int argc, char *argv[])
 
   std::thread image_loading_thread([&]()
                                    {
-    cv::VideoCapture vid;
-    vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
-    if (!vid.isOpened()) 
-    {
-      std::cerr << "ERROR! Unable to open camera\n";
-    }
+    // cv::VideoCapture vid;
+    // vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
+    // if (!vid.isOpened()) 
+    // {
+    //   std::cerr << "ERROR! Unable to open camera\n";
+    // }
 
     for (int i = 0; i < numOfFrames; i++)
     {
@@ -154,7 +156,7 @@ int main(int argc, char *argv[])
       convarImageLoader.notify_one();
     } });
 
-  bufferedORBNetStream bufferedORBStream(fsSettings["bufferedORBNetStream.port"], fsSettings["bufferedORBNetStream.bufferSize"], fsSettings["bufferedORBNetStream.amortizationDelay"]);
+  bufferedORBNetStream bufferedORBStream(fsSettings["bufferedORBNetStream.port"], fsSettings["bufferedORBNetStream.bufferSize"], fsSettings["bufferedORBNetStream.amortizationDelay"], DEMO_MODE);
 
   Benchmark bmTotal("computing each frame");
   Benchmark bmORB("detecting and computing ORB descriptors");
@@ -198,7 +200,10 @@ int main(int argc, char *argv[])
     descriptors.download(descriptorsCPU);
 
     bmSend.start();
-    bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
+    if (DEMO_MODE)
+      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, i, frame);
+    else
+      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
     bmSend.set();
     bmTotal.set();
   }

@@ -1,8 +1,8 @@
 #include "bufferedORBNetStream.h"
 #include <iostream>
 
-bufferedORBNetStream::bufferedORBNetStream(int port, int bufferSize, int amortizationConstant)
-    : context(1), socket(context, zmq::socket_type::rep), port(port), bufferSize(bufferSize), amortizationConstant(amortizationConstant)
+bufferedORBNetStream::bufferedORBNetStream(int port, int bufferSize, int amortizationConstant, bool useImage)
+    : context(1), socket(context, zmq::socket_type::rep), port(port), bufferSize(bufferSize), amortizationConstant(amortizationConstant), useImage(useImage)
 {
   socket.bind("tcp://*:" + std::to_string(port));
 
@@ -49,6 +49,12 @@ void bufferedORBNetStream::messageConsumer()
     std::vector<cv::KeyPoint> kpt = bufferKpts.front();
     bufferKpts.pop_front();
 
+    cv::Mat img;
+    if (useImage)
+    {
+      img = bufferImg.front();
+      bufferImg.pop_front();
+    }
 
     // Check if the buffer was full
     if (bufferFull && bufferKpts.size() < drainThreshold)
@@ -63,18 +69,16 @@ void bufferedORBNetStream::messageConsumer()
 
     // Send the message ---------------------------
     std::cout << "mutex unlocked. Calling sendFrame on frame " << num << " ...";
-    bmSendAsync.start();
-    
-    // Test the new encoder
-    std::vector<cv::KeyPoint> kpts_new;
-    cv::Mat desc_new;
 
-    decodeKeypoints(encodeKeypoints(desc, kpt, num), desc_new, kpts_new);
-    std::string message = encodeKeypoints(desc_new, kpts_new, kpts_new.size(), num);
+    if (useImage)
+    {
+      sendFrame(encodeKeypoints(desc, kpt, num, img));
+    }
+    else
+    {
+      sendFrame(encodeKeypoints(desc, kpt, num));
+    }
 
-    // std::string message = encodeKeypoints(desc, kpt, kpt.size(), num);
-    sendFrame(message);
-    bmSendAsync.set();
     std::cout << "done" << std::endl;
     // --------------------------------------------
     
@@ -163,6 +167,31 @@ zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::v
   return message;
 }
 
+/**
+ * Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...;imageSize;image
+ * @param descriptors
+ * @param keypoints
+ * @param frameNumber
+ * @param img
+ * @return The encoded zmq message
+*/
+zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img)
+{
+  zmq::message_t message = encodeKeypoints(descriptors, keypoints, frameNumber);
+
+  // Compress the image
+  std::vector<uchar> buf;
+  cv::imencode(".png", img, buf);
+  uint32_t imgSize = buf.size();
+
+  zmq::message_t newMessage(message.size() + 4 + imgSize);
+  memcpy(newMessage.data(), message.data(), message.size());
+  memcpy(static_cast<char*>(newMessage.data()) + message.size(), &imgSize, 4);
+  memcpy(static_cast<char*>(newMessage.data()) + message.size() + 4, buf.data(), imgSize);
+
+  return newMessage;
+}
+
 /// @brief Decode the keypoints and descriptors from the encoded zmq message
 /// @param message
 /// @param descriptors The output descriptors matrix
@@ -193,7 +222,6 @@ void bufferedORBNetStream::decodeKeypoints(zmq::message_t message, cv::Mat& desc
   }
 }
 
-
 /**
  * Send the encoded frame to the specified port. This process blocks until a request is received and the message is sent.
  * @param encodedFrame The encoded frame to send
@@ -208,6 +236,20 @@ void bufferedORBNetStream::sendFrame(std::string encodedFrame)
     zmq::message_t temp;
     socket.recv(temp, zmq::recv_flags::none);
     socket.send(request, zmq::send_flags::none);
+  }
+  catch (zmq::error_t e)
+  {
+    std::cout << "Error sending frame: " << e.what() << std::endl;
+  }
+}
+
+void bufferedORBNetStream::sendFrame(zmq::message_t encodedFrame)
+{
+  try
+  {
+    zmq::message_t temp;
+    socket.recv(temp, zmq::recv_flags::none);
+    socket.send(encodedFrame, zmq::send_flags::none);
   }
   catch (zmq::error_t e)
   {
@@ -252,6 +294,40 @@ void bufferedORBNetStream::encodeAndSendFrameAsync(std::vector<cv::KeyPoint> key
   bufferCondition.notify_one();
 
   // Lock is automatically released when the unique_lock goes out of scope.
+}
+
+void bufferedORBNetStream::encodeAndSendFrameAsync(std::vector<cv::KeyPoint> keypoints, cv::Mat descriptors, int frameNumber, cv::Mat img)
+{
+  // Acquire lock to mutex
+  std::unique_lock<std::mutex> lock(bufferMutex);
+
+  // Wait until the buffer is no longer full if it is full
+  if (bufferFull)
+  {
+    bufferCondition.wait(lock, [this] { return !bufferFull; });
+  }
+
+  // Perform amortization if there exists a message in the buffer
+  if (buffer.size() > 0)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(amortizationConstant));
+  }
+
+  // Append the encoded frame to the buffer
+  cv::Mat desc_copy = descriptors.clone();
+  cv::Mat img_copy = img.clone();
+  bufferDesc.push_back(desc_copy);
+  bufferKpts.push_back(keypoints);
+  bufferImg.push_back(img_copy);
+
+  // Check if the buffer is full. If yes then simply set the flag to true
+  if (bufferKpts.size() == bufferSize)
+  {
+    bufferFull = true;
+  }
+
+  // Notify the consumer that the buffer is no longer empty
+  bufferCondition.notify_one();
 }
 
 bufferedORBNetStream::~bufferedORBNetStream()

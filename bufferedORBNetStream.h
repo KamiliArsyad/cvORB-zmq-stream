@@ -1,4 +1,6 @@
 #include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
 #include <bitset>
 #include <string>
 #include <deque>
@@ -23,6 +25,7 @@ private:
 
   int bufferSize = 100;
   int amortizationConstant = 10; // The number of milliseconds to wait before sending the next message if there exists a message in the buffer.
+  bool useImage = false;
 
   // The buffer is a deque of encoded frames. Message is pushed to the back and
   // popped from the front.
@@ -30,10 +33,13 @@ private:
   std::deque<cv::Mat> bufferDesc;
   std::deque<std::vector<cv::KeyPoint>> bufferKpts;
 
+  // Image support
+  std::deque<cv::Mat> bufferImg;
+
   /**
    * Thread to consume the buffer and send the messages. This thread keeps running
    * until the program is terminated or the object is destroyed.
-  */
+   */
   std::thread messageConsumerThread;
 
   // The conditional variable and mutex to synchronize the buffer.
@@ -46,7 +52,7 @@ private:
 
   /**
    * Benchmarking variables. Not all of them are used.
-  */
+   */
   Benchmark bmSendAsync = Benchmark("calling send async");
   Benchmark bmEncode = Benchmark("encoding the frame");
   Benchmark bmSendAsyncLock = Benchmark("acquiring lock");
@@ -59,34 +65,35 @@ private:
    * <frameNumber>;<numKeypoints>;<desc1>;<x1>,<y1>;<desc2>;<x2>,<y2>;...
    * The descriptors are encoded as 32 characters ASCII strings for efficiency.
    */
-  std::string encodeKeypoints(Mat descriptors, std::vector<KeyPoint> keypoints, 
+  std::string encodeKeypoints(Mat descriptors, std::vector<KeyPoint> keypoints,
                               int numKeypoints, int frameNumber);
-  
+
   zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber);
 
-  void decodeKeypoints(zmq::message_t message, cv::Mat& descriptors, std::vector<cv::KeyPoint>& keypoints);
+  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img);
+
+  void decodeKeypoints(zmq::message_t message, cv::Mat &descriptors, std::vector<cv::KeyPoint> &keypoints);
 
   /**
    * Thread to consume the buffer and send the messages. This thread keeps running
    * until the program is terminated or the object is destroyed.
-  */
+   */
   void messageConsumer();
-
-
 
 public:
   /**
    * Initialize an edge/node/worker stream.
    * @param port The port to listen to.
    * @param bufferSize The size of the buffer.
-   * @param amortizationConstant The number of milliseconds to hold the calling thread before 
+   * @param amortizationConstant The number of milliseconds to hold the calling thread before
    *                              sending the next message if there exists a message in the buffer.
-  */
-  bufferedORBNetStream(int port, int bufferSize, int amortizationConstant);
+   * @param useImage Whether to use image or not.
+   */
+  bufferedORBNetStream(int port, int bufferSize, int amortizationConstant, bool useImage=false);
 
   /**
    * Destructor. Joins the message consumer thread. This might take a while as the thread empties the buffer if it's not empty.
-  */
+   */
   ~bufferedORBNetStream();
 
   /**
@@ -95,18 +102,34 @@ public:
    */
   void sendFrame(std::string encodedFrame);
 
+  /**
+   * Send an encoded frame (zmq::message_t version).
+   * @param encodedFrame The encoded frame to send.
+   */
+  void sendFrame(zmq::message_t encodedFrame);
+
   void encodeAndSendFrame(std::vector<KeyPoint> keypointsArray,
-                         Mat descriptorsArray, int numKeypoints,
-                         int frameNumber);
-  
+                          Mat descriptorsArray, int numKeypoints,
+                          int frameNumber);
+
   /**
    * Appends the encoded frame to the buffer to be consumed by the messageConsumerThread. The message consumer thread automatically consumes the buffer and sends the messages.
    * @param keypoints The keypoints to encode and send.
    * @param descriptors The descriptors to encode and send.
    * @param numKeypoints The number of keypoints.
    * @param frameNumber The frame number.
-  */
+   */
   void encodeAndSendFrameAsync(std::vector<KeyPoint> keypoints,
                                Mat descriptors, int numKeypoints,
                                int frameNumber);
+
+  /**
+   * Appends the encoded frame (with image) to the buffer to be consumed by the messageConsumerThread. The message consumer thread automatically consumes the buffer and sends the messages.
+   * @param keypoints The keypoints to encode and send.
+   * @param descriptors The descriptors to encode and send.
+   * @param frameNumber The frame number.
+   * @param img The image to encode and send.
+   */
+  void encodeAndSendFrameAsync(std::vector<KeyPoint> keypoints,
+                               Mat descriptors, int frameNumber, Mat img);
 };
