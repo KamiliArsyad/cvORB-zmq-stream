@@ -168,14 +168,14 @@ zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::v
 }
 
 /**
- * Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...;imageSize;image
+ * Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...;timestamp;imageSize;image;
  * @param descriptors
  * @param keypoints
  * @param frameNumber
  * @param img
  * @return The encoded zmq message
 */
-zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img)
+zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img, double timestamp)
 {
   zmq::message_t message = encodeKeypoints(descriptors, keypoints, frameNumber);
 
@@ -184,10 +184,12 @@ zmq::message_t bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::v
   cv::imencode(".png", img, buf);
   uint32_t imgSize = buf.size();
 
-  zmq::message_t newMessage(message.size() + 4 + imgSize);
+  zmq::message_t newMessage(message.size() + 8 + 4 + imgSize);
   memcpy(newMessage.data(), message.data(), message.size());
-  memcpy(static_cast<char*>(newMessage.data()) + message.size(), &imgSize, 4);
-  memcpy(static_cast<char*>(newMessage.data()) + message.size() + 4, buf.data(), imgSize);
+  memcpy(static_cast<char*>(newMessage.data()) + message.size(), &timestamp, 8);
+
+  memcpy(static_cast<char*>(newMessage.data()) + message.size() + 8, &imgSize, 4);
+  memcpy(static_cast<char*>(newMessage.data()) + message.size() + 8 + 4, buf.data(), imgSize);
 
   return newMessage;
 }

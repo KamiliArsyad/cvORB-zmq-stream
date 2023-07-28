@@ -70,7 +70,7 @@ private:
 
   zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber);
 
-  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img);
+  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img, double timestamp=0);
 
   void decodeKeypoints(zmq::message_t message, cv::Mat &descriptors, std::vector<cv::KeyPoint> &keypoints);
 

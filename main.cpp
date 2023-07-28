@@ -150,6 +150,7 @@ int main(int argc, char *argv[])
   int fIniThFAST = fsSettings["ORBExtractor.iniThFAST"];
   int blurForDescriptor = fsSettings["ORBExtractor.blurForDescriptor"];
   Mat descriptorsCPU;
+  double timestamp;
 
   Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, fScaleFactor, nLevels, 31, 0, 2, ORB::HARRIS_SCORE, 31, fIniThFAST, blurForDescriptor);
 
@@ -193,14 +194,17 @@ int main(int argc, char *argv[])
     for (int i = 0; i < numOfFrames; i++)
     {
       cv::Mat new_frame;
+      double newframe_timestamp = 0;
 
       if (mode = IMAGE_LOADER_MODE)
       {
         new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
+        newframe_timestamp = vTimestamps[i];
       } else
       {
         cv::Mat new_frame_color;
         vid >> new_frame_color;
+        newframe_timestamp = vid.get(cv::CAP_PROP_POS_MSEC);
 
         cv::cvtColor(new_frame_color, new_frame, cv::COLOR_BGR2GRAY);
       }
@@ -211,6 +215,7 @@ int main(int argc, char *argv[])
 
       // main thread is ready
       frame = new_frame;
+      newframe_timestamp = timestamp;
       ready = false;
 
       // Notify
