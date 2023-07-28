@@ -25,6 +25,10 @@
 
 #define DEMO_MODE 1 // Demo mode will send the images to the server as well
 
+#define IMAGE_LOADER_MODE 0 // Image loader mode will load the images from the given dataset
+#define CAMERA_MODE 1       // Camera mode will use the camera as the source of images
+#define VIDEO_MODE 2        // Video mode will use the specified video as the source of images
+
 using namespace cv;
 
 /**
@@ -36,50 +40,98 @@ using namespace cv;
  * @param numRetPoints The maximum number of keypoints to be returned.
  * @param tolerance The tolerance parameter for the SSC algorithm.
  * @param cols The number of columns in the image.
- * @param rows The number of rows in the image.
- */
+ * @param rows The number of rows in the image.  */
 std::vector<KeyPoint> ANMS_SSC(std::vector<KeyPoint> unsortedKeypoints, int numRetPoints, float tolerance, int cols, int rows);
 
 void LoadImages(const std::string &strImagePath, const std::string &strPathTimes,
                 std::vector<std::string> &vstrImages, std::vector<double> &vTimeStamps);
 
 /**
- * First argument: backend (<cpu|cuda>)
- * Second argument: the sequence directory
+ * First argument: The mode of operation (0: image loader, 1: camera, 2: video)
+ * Second argument: The path to the image folder (if mode is 0), or the path to settings file (if mode is 1), or the path to the video (if mode is 2)
+ * Third argument: The path to the times file (if mode is 0) or the path to the settings file (if mode is 2)
+ * Fourth argument: The path to the settings file (if mode is 0)
+ *
+ * Arguments table
+ *    Mode     |   First argument  |   Second argument       |   Third argument       |   Fourth argument
+ *    0        |   0               |   path to image folder  |   path to times file   |  path to settings file
+ *    1        |   1               |   path to settings file |    -                   |   -
+ *    2        |   2               |   path to video         |   path to settings file|   -
  */
 int main(int argc, char *argv[])
 {
   int returnValue = 0;
 
-  // Parse parameters
-  if (argc != 4)
+  if (argc < 2)
   {
-    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <path_to_image_folder>" + " <path_to_times_file>" + " <path_to_settings_file");
+    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <mode> <path_to_image_folder|path_to_settings_file|path_to_video> <path_to_times_file|-|path_to_settings_file> <path_to_settings_file|-|->");
   }
 
   std::vector<std::string> vstrImageFilenames;
   std::vector<double> vTimestamps;
+  int mode = atoi(argv[1]);
 
-  // Load images and timestamps
-  LoadImages(argv[1], argv[2], vstrImageFilenames, vTimestamps);
+  std::cout << "Mode choosen is " << std::string(mode == IMAGE_LOADER_MODE ? "IMAGE_LOADER_MODE" : mode == CAMERA_MODE ? "CAMERA_MODE"
+                                                                                                                       : "VIDEO_MODE")
+            << std::endl;
 
-  int numOfFrames = vstrImageFilenames.size();
-
-  if (numOfFrames <= 0)
+  if (mode == IMAGE_LOADER_MODE)
   {
-    throw std::runtime_error("Couldn't load images");
+    if (argc != 5)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 0 <path_to_image_folder> <path_to_times_file> <path_to_settings_file>");
+    }
+  }
+  else if (mode == CAMERA_MODE)
+  {
+    if (argc != 3)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 1 <path_to_settings_file>");
+    }
+  }
+  else if (mode == VIDEO_MODE)
+  {
+    if (argc != 4)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 2 <path_to_video> <path_to_settings_file>");
+    }
+  }
+  else
+  {
+    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <mode> <path_to_image_folder|path_to_settings_file|path_to_video> <path_to_times_file|-|path_to_settings_file>");
+  }
+
+  // MAX INTEGER
+  int numOfFrames = std::numeric_limits<int>::max();
+
+  if (mode = IMAGE_LOADER_MODE)
+  {
+    // Load images and timestamps
+    LoadImages(argv[2], argv[3], vstrImageFilenames, vTimestamps);
+
+    numOfFrames = vstrImageFilenames.size();
+
+    if (numOfFrames <= 0)
+    {
+      throw std::runtime_error("Couldn't load images");
+    }
   }
 
   // ---------------------
   // Load the settings file
   // ---------------------
-  cv::FileStorage fsSettings(argv[3], cv::FileStorage::READ);
+  int argcSettings = 0;
+  argcSettings = argc - 1;
+  
+  cv::FileStorage fsSettings(argv[argcSettings], cv::FileStorage::READ);
 
   // Check
   if (!fsSettings.isOpened())
   {
     throw std::runtime_error("Could not open settings file");
   }
+
+  std::cout << "Settings file loaded" << std::endl;
 
   // ---------------------
   // Limit the number of frames to whatever is set in the settings file
@@ -111,13 +163,7 @@ int main(int argc, char *argv[])
   //      ---------------------
 
   cv::Mat frame;
-  frame = cv::imread(vstrImageFilenames[0], cv::IMREAD_UNCHANGED);
   cuda::GpuMat frameGPU(frame);
-
-  if (frame.empty())
-  {
-    throw std::runtime_error("Couldn't load image");
-  }
 
   // Setup a thread and its corresponding synchronization mechanism for loading the images
   std::mutex mtxImageLoader;
@@ -126,23 +172,38 @@ int main(int argc, char *argv[])
 
   std::thread image_loading_thread([&]()
                                    {
-    // cv::VideoCapture vid;
-    // vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
-    // if (!vid.isOpened()) 
-    // {
-    //   std::cerr << "ERROR! Unable to open camera\n";
-    // }
+                        
+    cv::VideoCapture vid;
+    if (mode = CAMERA_MODE)
+    {
+      vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
+      if (!vid.isOpened()) 
+      {
+        std::cerr << "ERROR! Unable to open camera\n";
+      }
+    } else if (mode = VIDEO_MODE)
+    {
+      vid.open(argv[2]);
+      if (!vid.isOpened()) 
+      {
+        std::cerr << "ERROR! Unable to open video\n";
+      }
+    }
 
     for (int i = 0; i < numOfFrames; i++)
     {
-      cv::Mat new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
-      /*
-      cv::Mat new_frame_color;
       cv::Mat new_frame;
-      vid >> new_frame_color;
 
-      cv::cvtColor(new_frame_color, new_frame, cv::COLOR_BGR2GRAY);
-      */
+      if (mode = IMAGE_LOADER_MODE)
+      {
+        new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
+      } else
+      {
+        cv::Mat new_frame_color;
+        vid >> new_frame_color;
+
+        cv::cvtColor(new_frame_color, new_frame, cv::COLOR_BGR2GRAY);
+      }
 
       // wait until the main thread is ready for the next image
       std::unique_lock<std::mutex> lock(mtxImageLoader);
