@@ -104,7 +104,7 @@ int main(int argc, char *argv[])
   // MAX INTEGER
   int numOfFrames = std::numeric_limits<int>::max();
 
-  if (mode = IMAGE_LOADER_MODE)
+  if (mode == IMAGE_LOADER_MODE)
   {
     // Load images and timestamps
     LoadImages(argv[2], argv[3], vstrImageFilenames, vTimestamps);
@@ -173,16 +173,17 @@ int main(int argc, char *argv[])
 
   std::thread image_loading_thread([&]()
                                    {
+    std::cout << "Starting image loading thread ... " << std::endl;
                         
     cv::VideoCapture vid;
-    if (mode = CAMERA_MODE)
+    if (mode == CAMERA_MODE)
     {
       vid.open("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)1080, height=(int)720,format=(string)NV12, framerate=(fraction)30/1 ! nvvidconv ! video/x-raw, format=(string)BGRx ! videoconvert !  appsink");
       if (!vid.isOpened()) 
       {
         std::cerr << "ERROR! Unable to open camera\n";
       }
-    } else if (mode = VIDEO_MODE)
+    } else if (mode == VIDEO_MODE)
     {
       vid.open(argv[2]);
       if (!vid.isOpened()) 
@@ -191,12 +192,13 @@ int main(int argc, char *argv[])
       }
     }
 
+    std::cout << "Image loader thread started" << std::endl;
     for (int i = 0; i < numOfFrames; i++)
     {
       cv::Mat new_frame;
       double newframe_timestamp = 0;
 
-      if (mode = IMAGE_LOADER_MODE)
+      if (mode == IMAGE_LOADER_MODE)
       {
         new_frame = cv::imread(vstrImageFilenames[i], cv::IMREAD_UNCHANGED);
         newframe_timestamp = vTimestamps[i];
