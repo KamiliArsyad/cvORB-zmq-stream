@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
   int fIniThFAST = fsSettings["ORBExtractor.iniThFAST"];
   int blurForDescriptor = fsSettings["ORBExtractor.blurForDescriptor"];
   Mat descriptorsCPU;
-  double timestamp;
+  double timestamp = 0;
 
   Ptr<cuda::ORB> orb = cuda::ORB::create(nFeatures, fScaleFactor, nLevels, 31, 0, 2, ORB::HARRIS_SCORE, 31, fIniThFAST, blurForDescriptor);
 
@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
       {
         cv::Mat new_frame_color;
         vid >> new_frame_color;
-        newframe_timestamp = vid.get(cv::CAP_PROP_POS_MSEC);
+        newframe_timestamp = vid.get(cv::CAP_PROP_POS_MSEC) / 1000.0;
 
         cv::cvtColor(new_frame_color, new_frame, cv::COLOR_BGR2GRAY);
       }
@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
 
       // main thread is ready
       frame = new_frame;
-      newframe_timestamp = timestamp;
+      timestamp = newframe_timestamp;
       ready = false;
 
       // Notify
@@ -269,9 +269,9 @@ int main(int argc, char *argv[])
 
     bmSend.start();
     if (DEMO_MODE)
-      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, i, frame);
+      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, i, frame, timestamp);
     else
-      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i);
+      bufferedORBStream.encodeAndSendFrameAsync(filteredKeypoints, descriptorsCPU, filteredKeypoints.size(), i, timestamp);
     bmSend.set();
     bmTotal.set();
   }

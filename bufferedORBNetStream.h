@@ -32,6 +32,7 @@ private:
   std::deque<std::string> buffer;
   std::deque<cv::Mat> bufferDesc;
   std::deque<std::vector<cv::KeyPoint>> bufferKpts;
+  std::deque<double> bufferTimestamps;
 
   // Image support
   std::deque<cv::Mat> bufferImg;
@@ -68,7 +69,7 @@ private:
   std::string encodeKeypoints(Mat descriptors, std::vector<KeyPoint> keypoints,
                               int numKeypoints, int frameNumber);
 
-  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber);
+  zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, double timestamp=0);
 
   zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img, double timestamp=0);
 
@@ -121,7 +122,7 @@ public:
    */
   void encodeAndSendFrameAsync(std::vector<KeyPoint> keypoints,
                                Mat descriptors, int numKeypoints,
-                               int frameNumber);
+                               int frameNumber, double timestamp=0);
 
   /**
    * Appends the encoded frame (with image) to the buffer to be consumed by the messageConsumerThread. The message consumer thread automatically consumes the buffer and sends the messages.
@@ -129,7 +130,8 @@ public:
    * @param descriptors The descriptors to encode and send.
    * @param frameNumber The frame number.
    * @param img The image to encode and send.
+   * @param timestamp The timestamp of the frame.
    */
   void encodeAndSendFrameAsync(std::vector<KeyPoint> keypoints,
-                               Mat descriptors, int frameNumber, Mat img);
+                               Mat descriptors, int frameNumber, Mat img, double timestamp);
 };

@@ -1,13 +1,13 @@
 %YAML:1.0
 
 # Maximum number of frames to process
-maxFrames: 50
+maxFrames: 12000
 
 #----------------------------------------------------------
 # ORB Parameters
 #----------------------------------------------------------
 # ORB Extractor: Number of features
-ORBExtractor.nFeatures: 2500
+ORBExtractor.nFeatures: 3000
 
 # ORB Extractor: Scale factor between levels in the scale pyramid
 ORBExtractor.scaleFactor: 1.2
