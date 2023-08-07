@@ -60,15 +60,6 @@ private:
   Benchmark bmEncodeDescriptor = Benchmark("encoding one 256-bit descriptor");
   Benchmark bmEncodeKeypoint = Benchmark("encoding one keypoint");
 
-  /**
-   * Encode the keypoints and their respective descriptors of a frame
-   * into a single string. The format is as follows:
-   * <frameNumber>;<numKeypoints>;<desc1>;<x1>,<y1>;<desc2>;<x2>,<y2>;...
-   * The descriptors are encoded as 32 characters ASCII strings for efficiency.
-   */
-  std::string encodeKeypoints(Mat descriptors, std::vector<KeyPoint> keypoints,
-                              int numKeypoints, int frameNumber);
-
   zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, double timestamp=0);
 
   zmq::message_t encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int frameNumber, cv::Mat img, double timestamp=0);
@@ -96,12 +87,6 @@ public:
    * Destructor. Joins the message consumer thread. This might take a while as the thread empties the buffer if it's not empty.
    */
   ~bufferedORBNetStream();
-
-  /**
-   * Send an encoded frame.
-   * @param encodedFrame The encoded frame to send.
-   */
-  void sendFrame(std::string encodedFrame);
 
   /**
    * Send an encoded frame (zmq::message_t version).
