@@ -2,8 +2,7 @@
  * This code is made for monocular eurocc dataset. No setting file is needed or used as of right now as we
  * are only ensure that the proposed model is working.
  */
-#include "./cvORBNetStream.h"
-#include "./bufferedORBNetStream.h"
+#include "bufferedORBNetStream.h"
 
 // #include <opencv2/features2d.hpp>
 #include <opencv2/cudafeatures2d.hpp>
