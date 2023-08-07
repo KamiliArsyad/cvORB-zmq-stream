@@ -26,10 +26,6 @@ void bufferedORBNetStream::messageConsumer()
     // Request lock to mutex
     std::unique_lock<std::mutex> lock(bufferMutex);
 
-    /*
-    // Wait until the buffer is not empty
-    bufferCondition.wait(lock, [this] { return !bufferEmpty;  });
-    */
 
     if (bufferKpts.empty()) 
     {
@@ -38,10 +34,6 @@ void bufferedORBNetStream::messageConsumer()
     }
 
     // Dequeue and pop the message
-    /*
-    std::string message = buffer.front();
-    buffer.pop_front();
-    */
 
     cv::Mat desc = bufferDesc.front();
     bufferDesc.pop_front();
@@ -91,40 +83,6 @@ void bufferedORBNetStream::messageConsumer()
       done = true;
     }
   }
-}
-
-/// @brief Encode the keypoints and descriptors into a string of format: frameNumber;numKeypoints;descriptor1;keypoint1;descriptor2;keypoint2;...
-/// @param descriptors
-/// @param keypoints
-/// @param numKeypoints
-/// @param frameNumber
-/// @return The encoded string
-std::string bufferedORBNetStream::encodeKeypoints(cv::Mat descriptors, std::vector<cv::KeyPoint> keypoints, int numKeypoints, int frameNumber)
-{
-  std::ostringstream ss;
-  ss << frameNumber << ";" << numKeypoints << ";";
-
-  // Encode the keypoints and descriptors
-  for (int i = 0; i < numKeypoints; ++i)
-  {
-    // Encode the descriptor to 32 characters
-    for (int j = 0; j < 32; ++j)
-    {
-      unsigned char byte = descriptors.at<unsigned char>(i, j);
-
-      ss << byte;
-    }
-
-    ss << ";";
-
-    // Encode the keypoint
-    ss << static_cast<int>(std::floor(keypoints[i].pt.x)) 
-       << "," 
-       << static_cast<int>(std::floor(keypoints[i].pt.y)) 
-       << ";";
-  }
-
-  return ss.str();
 }
 
 /// @brief Much faster encoder using memcpy from the descriptors matrix directly to the string
@@ -226,27 +184,6 @@ void bufferedORBNetStream::decodeKeypoints(zmq::message_t message, cv::Mat& desc
     memcpy(&y, static_cast<char*>(message.data()) + 6 + 32 * numKeypoints + 4 * i + 2, 2);
 
     keypoints.push_back(cv::KeyPoint(x, y, 1));
-  }
-}
-
-/**
- * Send the encoded frame to the specified port. This process blocks until a request is received and the message is sent.
- * @param encodedFrame The encoded frame to send
-*/
-void bufferedORBNetStream::sendFrame(std::string encodedFrame)
-{
-  zmq::message_t request(encodedFrame.size());
-  memcpy(request.data(), encodedFrame.c_str(), encodedFrame.size());
-
-  try
-  {
-    zmq::message_t temp;
-    socket.recv(temp, zmq::recv_flags::none);
-    socket.send(request, zmq::send_flags::none);
-  }
-  catch (zmq::error_t e)
-  {
-    std::cout << "Error sending frame: " << e.what() << std::endl;
   }
 }
 
