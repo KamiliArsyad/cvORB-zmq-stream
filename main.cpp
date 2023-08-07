@@ -46,6 +46,15 @@ void LoadImages(const std::string &strImagePath, const std::string &strPathTimes
                 std::vector<std::string> &vstrImages, std::vector<double> &vTimeStamps);
 
 /**
+ * @brief This function confirms that the arguments passed to the program are correct.
+ * @param argc The number of arguments passed to the program.
+ * @param argvzero The name of the program.
+ * @param mode The mode of operation (0: image loader, 1: camera, 2: video)
+ * @return 0 if the arguments are correct, 1 otherwise.
+ */
+int confirm_arguments(int argc, std::string argvzero, int mode);
+
+/**
  * First argument: The mode of operation (0: image loader, 1: camera, 2: video)
  * Second argument: The path to the image folder (if mode is 0), or the path to settings file (if mode is 1), or the path to the video (if mode is 2)
  * Third argument: The path to the times file (if mode is 0) or the path to the settings file (if mode is 2)
@@ -66,42 +75,15 @@ int main(int argc, char *argv[])
     throw std::runtime_error(std::string("Usage: ") + argv[0] + " <mode> <path_to_image_folder|path_to_settings_file|path_to_video> <path_to_times_file|-|path_to_settings_file> <path_to_settings_file|-|->");
   }
 
-  std::vector<std::string> vstrImageFilenames;
-  std::vector<double> vTimestamps;
   int mode = atoi(argv[1]);
 
-  std::cout << "Mode choosen is " << std::string(mode == IMAGE_LOADER_MODE ? "IMAGE_LOADER_MODE" : mode == CAMERA_MODE ? "CAMERA_MODE"
-                                                                                                                       : "VIDEO_MODE")
-            << std::endl;
-
-  if (mode == IMAGE_LOADER_MODE)
-  {
-    if (argc != 5)
-    {
-      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 0 <path_to_image_folder> <path_to_times_file> <path_to_settings_file>");
-    }
-  }
-  else if (mode == CAMERA_MODE)
-  {
-    if (argc != 3)
-    {
-      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 1 <path_to_settings_file>");
-    }
-  }
-  else if (mode == VIDEO_MODE)
-  {
-    if (argc != 4)
-    {
-      throw std::runtime_error(std::string("Usage: ") + argv[0] + " 2 <path_to_video> <path_to_settings_file>");
-    }
-  }
-  else
-  {
-    throw std::runtime_error(std::string("Usage: ") + argv[0] + " <mode> <path_to_image_folder|path_to_settings_file|path_to_video> <path_to_times_file|-|path_to_settings_file>");
-  }
+  confirm_arguments(argc, argv[0], mode);
 
   // MAX INTEGER
   int numOfFrames = std::numeric_limits<int>::max();
+
+  std::vector<std::string> vstrImageFilenames;
+  std::vector<double> vTimestamps;
 
   if (mode == IMAGE_LOADER_MODE)
   {
@@ -121,7 +103,7 @@ int main(int argc, char *argv[])
   // ---------------------
   int argcSettings = 0;
   argcSettings = argc - 1;
-  
+
   cv::FileStorage fsSettings(argv[argcSettings], cv::FileStorage::READ);
 
   // Check
@@ -170,6 +152,25 @@ int main(int argc, char *argv[])
   std::condition_variable convarImageLoader;
   bool ready = false;
 
+  /**
+   * The image loading thread. This thread's functionality has grown from just loading the images out of a single folder
+   * to handling multiple modes of operation. This causes the code to be rather messy and I have yet to find the time to
+   * clean it up. A good practice would just be to define another class for the image loading thread and move it to a
+   * separate file.
+   * 
+   * I believe this current code has just passed its third development stage which means that any further modifications
+   * to this thread can no longer be done without adding painful complexity to the code. Thus, if you are working with
+   * this code and you need to modify this thread, please refactor it first. I'm sorry for the inconvenience. Refactoring
+   * this thread is an essential first step before refactoring anything else in the main code.
+   * 
+   * Don't refactor the whole main code straight away even though this thread is entangled with the main code. You should
+   * refactor this thread by following these steps:
+   * 1. Move this thread to a separate object and copy the whole function as it is without further modification. You will
+   *   need to make the constructor or perhaps the function arguments to be rather bloated to pass the necessary pointers.
+   * 2. If that works, you can then refactor the main function into separate functionality and clean the bloated arguments
+   *    along the way.
+   * 3. Once the object's matured, you can then continue refactoring the main code here.
+  */
   std::thread image_loading_thread([&]()
                                    {
     std::cout << "Starting image loading thread ... " << std::endl;
@@ -418,4 +419,39 @@ std::vector<KeyPoint> ANMS_SSC(std::vector<KeyPoint> unsortedKeypoints, int numR
     kp.push_back(keypoints[ResultVec[i]]);
 
   return kp;
+}
+
+int confirm_arguments(int argc, std::string argvzero, int mode)
+{
+  std::cout << "Mode choosen is " << std::string(mode == IMAGE_LOADER_MODE ? "IMAGE_LOADER_MODE" : mode == CAMERA_MODE ? "CAMERA_MODE"
+                                                                                                                       : "VIDEO_MODE")
+            << std::endl;
+
+  if (mode == IMAGE_LOADER_MODE)
+  {
+    if (argc != 5)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argvzero + " 0 <path_to_image_folder> <path_to_times_file> <path_to_settings_file>");
+    }
+  }
+  else if (mode == CAMERA_MODE)
+  {
+    if (argc != 3)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argvzero + " 1 <path_to_settings_file>");
+    }
+  }
+  else if (mode == VIDEO_MODE)
+  {
+    if (argc != 4)
+    {
+      throw std::runtime_error(std::string("Usage: ") + argvzero + " 2 <path_to_video> <path_to_settings_file>");
+    }
+  }
+  else
+  {
+    throw std::runtime_error(std::string("Usage: ") + argvzero + " <mode> <path_to_image_folder|path_to_settings_file|path_to_video> <path_to_times_file|-|path_to_settings_file>");
+  }
+
+  return 0;
 }
