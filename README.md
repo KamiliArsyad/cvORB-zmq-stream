@@ -32,9 +32,9 @@ There are a few different modes that you can run the code in:
 
 | Mode | First argument | Second argument | Third argument | Fourth argument |
 |------|----------------|-----------------|----------------|-----------------|
-| 0    | 0              | path to image folder | path to times file | path to settings file |
-| 1    | 1              | path to settings file | - | - |
-| 2    | 2              | path to video | path to settings file | - |
+| **Image Loader** | 0              | path to image folder | path to times file | path to settings file |
+| **Camera Input** | 1              | path to settings file | - | - |
+| **Video Loader** | 2              | path to video | path to settings file | - |
 
 ### Settings file
 An example settings file is available in `./assets` right here [settings.yaml](./assets/settings.yaml).
